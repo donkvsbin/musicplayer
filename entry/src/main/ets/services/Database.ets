@@ -7,14 +7,15 @@ import { relationalStore } from '@kit.ArkData';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { TrackInfo } from '../models/TrackInfo';
 import { PlayList, PlaylistTrack } from '../models/PlayList';
+import { SearchHistory } from '../models/SearchHistory';
 import {
   DATABASE_NAME,
-  DATABASE_VERSION,
-  TRACK_TABLE,
+  DEFAULT_PLAYLIST_FAVORITE,
+  DEFAULT_PLAYLIST_RECENT,
   PLAYLIST_TABLE,
   PLAYLIST_TRACK_TABLE,
-  DEFAULT_PLAYLIST_FAVORITE,
-  DEFAULT_PLAYLIST_RECENT
+  SEARCH_HISTORY_TABLE,
+  TRACK_TABLE
 } from '../constants/AppConstants';
 
 /**
@@ -25,7 +26,8 @@ export class Database {
   private rdbStore: relationalStore.RdbStore | null = null;
   private initialized: boolean = false;
 
-  private constructor() {}
+  private constructor() {
+  }
 
   /**
    * 获取数据库服务实例
@@ -53,16 +55,16 @@ export class Database {
 
     try {
       this.rdbStore = await relationalStore.getRdbStore(context, config);
-      
+
       // 设置 WAL 模式提升并发性能
       await this.rdbStore.executeSql('PRAGMA journal_mode=WAL;');
-      
+
       // 创建表
       await this.createTables();
-      
+
       // 初始化默认歌单
       await this.initDefaultPlaylists();
-      
+
       this.initialized = true;
       console.info('数据库初始化成功');
     } catch (err) {
@@ -79,6 +81,8 @@ export class Database {
       throw new Error('数据库未初始化');
     }
 
+    let inits: string[] = [];
+
     // 创建 track 表
     const createTrackTableSQL = `
       CREATE TABLE IF NOT EXISTS ${TRACK_TABLE} (
@@ -92,6 +96,7 @@ export class Database {
         added_at INTEGER NOT NULL
       )
     `;
+    inits.push(createTrackTableSQL);
 
     // 创建 playlist 表
     const createPlaylistTableSQL = `
@@ -101,6 +106,7 @@ export class Database {
         create_at INTEGER NOT NULL
       )
     `;
+    inits.push(createPlaylistTableSQL)
 
     // 创建 playlist_track 关联表
     const createPlaylistTrackTableSQL = `
@@ -113,15 +119,25 @@ export class Database {
         FOREIGN KEY (track_id) REFERENCES ${TRACK_TABLE}(id) ON DELETE CASCADE
       )
     `;
+    inits.push(createPlaylistTrackTableSQL);
 
-    try {
-      await this.rdbStore.executeSql(createTrackTableSQL);
-      await this.rdbStore.executeSql(createPlaylistTableSQL);
-      await this.rdbStore.executeSql(createPlaylistTrackTableSQL);
-      console.info('数据库表创建成功');
-    } catch (err) {
-      console.error('创建数据库表失败:', err);
-      throw new Error(err instanceof Error ? err.message : String(err));
+    const createSearchHistoryTableSQL = `
+      CREATE TABLE IF NOT EXISTS ${SEARCH_HISTORY_TABLE} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        keyword TEXT UNIQUE NOT NULL,
+        timestamp INTEGER NOT NULL
+      )
+    `;
+    inits.push(createSearchHistoryTableSQL);
+
+    for (const sql of inits) {
+      try {
+        await this.rdbStore.executeSql(sql);
+        console.info('数据库表创建成功');
+      } catch (err) {
+        console.error('创建数据库表失败:', err);
+        throw new Error(err instanceof Error ? err.message : String(err));
+      }
     }
   }
 
@@ -131,11 +147,11 @@ export class Database {
   private async initDefaultPlaylists(): Promise<void> {
     // 检查是否已存在默认歌单
     const playlists = await this.getAllPlaylists();
-    
+
     if (!playlists.find(p => p.name === DEFAULT_PLAYLIST_FAVORITE)) {
       await this.createPlaylist(DEFAULT_PLAYLIST_FAVORITE);
     }
-    
+
     if (!playlists.find(p => p.name === DEFAULT_PLAYLIST_RECENT)) {
       await this.createPlaylist(DEFAULT_PLAYLIST_RECENT);
     }
@@ -179,7 +195,7 @@ export class Database {
     }
 
     let successCount = 0;
-    
+
     // 批量插入，每条记录单独处理
     for (const track of tracks) {
       try {
@@ -192,7 +208,7 @@ export class Database {
         }
       }
     }
-    
+
     console.info(`批量插入完成: ${successCount}/${tracks.length}`);
     return successCount;
   }
@@ -207,17 +223,17 @@ export class Database {
     }
 
     const tracks: TrackInfo[] = [];
-    
+
     try {
       const predicates = new relationalStore.RdbPredicates(TRACK_TABLE);
       predicates.orderByDesc('added_at');
-      
+
       const resultSet = await this.rdbStore.query(predicates);
-      
+
       while (resultSet.goToNextRow()) {
         tracks.push(TrackInfo.fromResultSet(resultSet));
       }
-      
+
       resultSet.close();
       return tracks;
     } catch (err) {
@@ -239,15 +255,15 @@ export class Database {
     try {
       const predicates = new relationalStore.RdbPredicates(TRACK_TABLE);
       predicates.equalTo('id', id);
-      
+
       const resultSet = await this.rdbStore.query(predicates);
-      
+
       if (resultSet.goToFirstRow()) {
         const track = TrackInfo.fromResultSet(resultSet);
         resultSet.close();
         return track;
       }
-      
+
       resultSet.close();
       return null;
     } catch (err) {
@@ -269,15 +285,15 @@ export class Database {
     try {
       const predicates = new relationalStore.RdbPredicates(TRACK_TABLE);
       predicates.equalTo('file_path', filePath);
-      
+
       const resultSet = await this.rdbStore.query(predicates);
-      
+
       if (resultSet.goToFirstRow()) {
         const track = TrackInfo.fromResultSet(resultSet);
         resultSet.close();
         return track;
       }
-      
+
       resultSet.close();
       return null;
     } catch (err) {
@@ -298,7 +314,7 @@ export class Database {
     try {
       const predicates = new relationalStore.RdbPredicates(TRACK_TABLE);
       predicates.equalTo('id', id);
-      
+
       const deleteRows = await this.rdbStore.delete(predicates);
       console.info(`删除歌曲成功: ${id}, 影响行数: ${deleteRows}`);
     } catch (err) {
@@ -319,20 +335,20 @@ export class Database {
 
     const tracks: TrackInfo[] = [];
     const searchPattern = `%${keyword.trim()}%`;
-    
+
     try {
       const sql = `
         SELECT * FROM ${TRACK_TABLE} 
         WHERE title LIKE ? OR artist LIKE ? OR album LIKE ?
         ORDER BY added_at DESC
       `;
-      
+
       const resultSet = await this.rdbStore.querySql(sql, [searchPattern, searchPattern, searchPattern]);
-      
+
       while (resultSet.goToNextRow()) {
         tracks.push(TrackInfo.fromResultSet(resultSet));
       }
-      
+
       resultSet.close();
       return tracks;
     } catch (err) {
@@ -378,17 +394,17 @@ export class Database {
     }
 
     const playlists: PlayList[] = [];
-    
+
     try {
       const predicates = new relationalStore.RdbPredicates(PLAYLIST_TABLE);
       predicates.orderByDesc('create_at');
-      
+
       const resultSet = await this.rdbStore.query(predicates);
-      
+
       while (resultSet.goToNextRow()) {
         playlists.push(PlayList.fromResultSet(resultSet));
       }
-      
+
       resultSet.close();
       return playlists;
     } catch (err) {
@@ -410,18 +426,18 @@ export class Database {
     try {
       const predicates = new relationalStore.RdbPredicates(PLAYLIST_TABLE);
       predicates.equalTo('id', id);
-      
+
       const resultSet = await this.rdbStore.query(predicates);
-      
+
       if (resultSet.goToFirstRow()) {
         const playlist = PlayList.fromResultSet(resultSet);
         resultSet.close();
-        
+
         // 加载歌单中的歌曲
         playlist.tracks = await this.getPlaylistTracks(id);
         return playlist;
       }
-      
+
       resultSet.close();
       return null;
     } catch (err) {
@@ -443,18 +459,18 @@ export class Database {
     try {
       const predicates = new relationalStore.RdbPredicates(PLAYLIST_TABLE);
       predicates.equalTo('name', name);
-      
+
       const resultSet = await this.rdbStore.query(predicates);
-      
+
       if (resultSet.goToFirstRow()) {
         const playlist = PlayList.fromResultSet(resultSet);
         resultSet.close();
-        
+
         // 加载歌单中的歌曲
         playlist.tracks = await this.getPlaylistTracks(playlist.id);
         return playlist;
       }
-      
+
       resultSet.close();
       return null;
     } catch (err) {
@@ -475,7 +491,7 @@ export class Database {
     try {
       const predicates = new relationalStore.RdbPredicates(PLAYLIST_TABLE);
       predicates.equalTo('id', id);
-      
+
       const deleteRows = await this.rdbStore.delete(predicates);
       console.info(`删除歌单成功: ${id}, 影响行数: ${deleteRows}`);
     } catch (err) {
@@ -501,7 +517,7 @@ export class Database {
       // 获取当前最大排序值
       const sql = `SELECT MAX(sort_order) as max_order FROM ${PLAYLIST_TRACK_TABLE} WHERE playlist_id = ?`;
       const resultSet = await this.rdbStore.querySql(sql, [playlistId.toString()]);
-      
+
       let sortOrder = 0;
       if (resultSet.goToFirstRow()) {
         sortOrder = (resultSet.getLong(resultSet.getColumnIndex('max_order')) || 0) + 1;
@@ -559,7 +575,7 @@ export class Database {
     }
 
     const tracks: TrackInfo[] = [];
-    
+
     try {
       const sql = `
         SELECT t.* FROM ${TRACK_TABLE} t
@@ -567,13 +583,13 @@ export class Database {
         WHERE pt.playlist_id = ?
         ORDER BY pt.sort_order ASC
       `;
-      
+
       const resultSet = await this.rdbStore.querySql(sql, [playlistId.toString()]);
-      
+
       while (resultSet.goToNextRow()) {
         tracks.push(TrackInfo.fromResultSet(resultSet));
       }
-      
+
       resultSet.close();
       return tracks;
     } catch (err) {
@@ -593,17 +609,17 @@ export class Database {
     }
 
     const playlistIds: number[] = [];
-    
+
     try {
       const predicates = new relationalStore.RdbPredicates(PLAYLIST_TRACK_TABLE);
       predicates.equalTo('track_id', trackId);
-      
+
       const resultSet = await this.rdbStore.query(predicates);
-      
+
       while (resultSet.goToNextRow()) {
         playlistIds.push(resultSet.getLong(resultSet.getColumnIndex('playlist_id')));
       }
-      
+
       resultSet.close();
       return playlistIds;
     } catch (err) {
@@ -624,12 +640,12 @@ export class Database {
     try {
       const sql = `SELECT COUNT(*) as count FROM ${TRACK_TABLE}`;
       const resultSet = await this.rdbStore.querySql(sql);
-      
+
       let count = 0;
       if (resultSet.goToFirstRow()) {
         count = resultSet.getLong(resultSet.getColumnIndex('count'));
       }
-      
+
       resultSet.close();
       return count;
     } catch (err) {
@@ -637,6 +653,195 @@ export class Database {
       throw new Error(err instanceof Error ? err.message : String(err));
     }
   }
+
+  // ==================== SearchHistory 操作 ====================
+
+  /**
+   * 添加搜索历史记录
+   * @param keyword 搜索关键词
+   * @returns 是否成功
+   */
+  async addSearchHistoryRecord(keyword: string): Promise<boolean> {
+    if (!this.rdbStore) {
+      throw new Error('数据库未初始化');
+    }
+
+    if (!keyword.trim()) {
+      return false;
+    }
+
+    const trimmedKeyword = keyword.trim();
+
+    try {
+      // 先检查是否已存在相同关键词
+      const existingRecord = await this.getSearchHistoryRecord(trimmedKeyword);
+
+      if (existingRecord) {
+        // 如果已存在，更新其时间戳
+        const predicates = new relationalStore.RdbPredicates(SEARCH_HISTORY_TABLE);
+        predicates.equalTo('keyword', trimmedKeyword);
+
+        const valuesBucket: relationalStore.ValuesBucket = {
+          timestamp: Date.now()
+        };
+
+        await this.rdbStore.update(valuesBucket, predicates);
+        console.info(`搜索历史记录已更新: ${trimmedKeyword}`);
+      } else {
+        // 如果不存在，插入新记录
+        const valuesBucket: relationalStore.ValuesBucket = {
+          keyword: trimmedKeyword,
+          timestamp: Date.now()
+        };
+
+        await this.rdbStore.insert(SEARCH_HISTORY_TABLE, valuesBucket);
+        console.info(`搜索历史记录已添加: ${trimmedKeyword}`);
+      }
+
+      return true;
+    } catch (err) {
+      console.error('添加搜索历史记录失败:', err);
+      return false;
+    }
+  }
+
+  /**
+   * 获取搜索历史记录
+   * @param limit 限制返回数量，默认10条
+   * @returns 搜索历史关键词列表
+   */
+  async getSearchHistory(limit: number = 10): Promise<string[]> {
+    if (!this.rdbStore) {
+      throw new Error('数据库未初始化');
+    }
+
+    const keywords: string[] = [];
+
+    try {
+      const predicates = new relationalStore.RdbPredicates(SEARCH_HISTORY_TABLE);
+      predicates.orderByDesc('timestamp');
+
+      const resultSet = await this.rdbStore.query(predicates);
+
+      let count = 0;
+      while (resultSet.goToNextRow() && count < limit) {
+        const keyword = resultSet.getString(resultSet.getColumnIndex('keyword'));
+        keywords.push(keyword);
+        count++;
+      }
+
+      resultSet.close();
+      return keywords;
+    } catch (err) {
+      console.error('获取搜索历史失败:', err);
+      throw new Error(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * 获取特定搜索历史记录
+   * @param keyword 搜索关键词
+   * @returns 搜索历史记录信息
+   */
+  async getSearchHistoryRecord(keyword: string): Promise<SearchHistory | null> {
+    if (!this.rdbStore) {
+      throw new Error('数据库未初始化');
+    }
+
+    try {
+      const predicates = new relationalStore.RdbPredicates(SEARCH_HISTORY_TABLE);
+      predicates.equalTo('keyword', keyword);
+
+      const resultSet = await this.rdbStore.query(predicates);
+
+      if (resultSet.goToFirstRow()) {
+        const searchHistory = new SearchHistory({
+          id: resultSet.getLong(resultSet.getColumnIndex('id')),
+          keyword: resultSet.getString(resultSet.getColumnIndex('keyword')),
+          timestamp: resultSet.getLong(resultSet.getColumnIndex('timestamp'))
+        });
+
+        resultSet.close();
+        return searchHistory;
+      }
+
+      resultSet.close();
+      return null;
+    } catch (err) {
+      console.error('获取搜索历史记录失败:', err);
+      throw new Error(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * 删除特定搜索历史记录
+   * @param keyword 搜索关键词
+   * @returns 是否成功
+   */
+  async deleteSearchHistoryRecord(keyword: string): Promise<boolean> {
+    if (!this.rdbStore) {
+      throw new Error('数据库未初始化');
+    }
+
+    try {
+      const predicates = new relationalStore.RdbPredicates(SEARCH_HISTORY_TABLE);
+      predicates.equalTo('keyword', keyword);
+
+      const deleteRows = await this.rdbStore.delete(predicates);
+      console.info(`删除搜索历史记录成功: ${keyword}, 影响行数: ${deleteRows}`);
+      return deleteRows > 0;
+    } catch (err) {
+      console.error('删除搜索历史记录失败:', err);
+      return false;
+    }
+  }
+
+  /**
+   * 清空所有搜索历史记录
+   * @returns 是否成功
+   */
+  async clearSearchHistory(): Promise<boolean> {
+    if (!this.rdbStore) {
+      throw new Error('数据库未初始化');
+    }
+
+    try {
+      const predicates = new relationalStore.RdbPredicates(SEARCH_HISTORY_TABLE);
+      const deleteRows = await this.rdbStore.delete(predicates);
+      console.info(`清空搜索历史记录成功, 影响行数: ${deleteRows}`);
+      return true;
+    } catch (err) {
+      console.error('清空搜索历史记录失败:', err);
+      return false;
+    }
+  }
+
+  /**
+   * 获取搜索历史记录数量
+   * @returns 记录数量
+   */
+  async getSearchHistoryCount(): Promise<number> {
+    if (!this.rdbStore) {
+      throw new Error('数据库未初始化');
+    }
+
+    try {
+      const sql = `SELECT COUNT(*) as count FROM ${SEARCH_HISTORY_TABLE}`;
+      const resultSet = await this.rdbStore.querySql(sql);
+
+      let count = 0;
+      if (resultSet.goToFirstRow()) {
+        count = resultSet.getLong(resultSet.getColumnIndex('count'));
+      }
+
+      resultSet.close();
+      return count;
+    } catch (err) {
+      console.error('获取搜索历史数量失败:', err);
+      throw new Error(err instanceof Error ? err.message : String(err));
+    }
+  }
+
 
   /**
    * 关闭数据库

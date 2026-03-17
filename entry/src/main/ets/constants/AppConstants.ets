@@ -11,6 +11,8 @@ export const TRACK_TABLE = 'track';
 export const PLAYLIST_TABLE = 'playlist';
 export const PLAYLIST_TRACK_TABLE = 'playlist_track';
 
+export const SEARCH_HISTORY_TABLE = 'search_history'
+
 // 默认路径
 export const DEFAULT_COVER_PATH = '';
 

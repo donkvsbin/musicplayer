@@ -1,6 +1,6 @@
 /**
  * 搜索页面
- * 支持实时前缀搜索和模糊搜索
+ * 支持实时前缀搜索、模糊搜索及防抖优化
  */
 
 import { router } from '@kit.ArkUI';
@@ -9,6 +9,7 @@ import { Database } from '../services/Database';
 import { AudioSvc } from '../services/AudioSvc';
 import { SearchManager } from '../utils/TrieTree';
 import { TrackItem } from '../views/TrackItem';
+import { SearchHistory } from '../models/SearchHistory';
 
 @Entry
 @Component
@@ -19,16 +20,15 @@ struct SearchPage {
   @State private searchHistory: string[] = [];
   @State private isSearching: boolean = false;
   @State private hasSearched: boolean = false;
+  // 增加防抖定时器
+  private searchTimeout: number = -1;
 
   private database: Database = Database.getInstance();
   private audioSvc: AudioSvc = AudioSvc.getInstance();
   private searchManager: SearchManager = new SearchManager();
 
   aboutToAppear() {
-    // 加载所有歌曲并构建搜索索引
     this.loadAllTracks();
-    
-    // 加载搜索历史（从本地存储）
     this.loadSearchHistory();
   }
 
@@ -41,55 +41,61 @@ struct SearchPage {
     }
   }
 
-  private loadSearchHistory() {
-    // 这里可以从 preferences 加载历史记录
-    this.searchHistory = ['周杰伦', '流行音乐', '摇滚'];
+  private async loadSearchHistory() {
+    try {
+      this.searchHistory = await this.database.getSearchHistory();
+    } catch (err) {
+      console.error('加载搜索历史记录失败:', err);
+      this.searchHistory = SearchHistory.getSampleData().map(history => history.keyword);
+    }
   }
 
-  private saveSearchHistory(keyword: string) {
+  private async saveSearchHistory(keyword: string) {
     if (!keyword.trim()) return;
-    
-    // 去重并添加到开头
-    const trimmedKeyword = keyword.trim();
-    const index = this.searchHistory.indexOf(trimmedKeyword);
-    if (index > -1) {
-      this.searchHistory.splice(index, 1);
+
+    try {
+      await this.database.addSearchHistoryRecord(keyword);
+      await this.loadSearchHistory();
+    } catch (err) {
+      console.error('保存搜索历史记录失败:', err);
+      const trimmedKeyword = keyword.trim();
+      const index = this.searchHistory.indexOf(trimmedKeyword);
+      if (index > -1) {
+        this.searchHistory.splice(index, 1);
+      }
+      this.searchHistory.unshift(trimmedKeyword);
+      if (this.searchHistory.length > 10) {
+        this.searchHistory = this.searchHistory.slice(0, 10);
+      }
     }
-    this.searchHistory.unshift(trimmedKeyword);
-    
-    // 限制历史记录数量
-    if (this.searchHistory.length > 10) {
-      this.searchHistory = this.searchHistory.slice(0, 10);
-    }
-    
-    // 保存到本地存储
-    // TODO: 使用 preferences 保存
   }
 
   private onSearchInputChange(keyword: string) {
     this.searchKeyword = keyword;
-    
+
     if (keyword.trim().length === 0) {
-      this.searchResults = [];
-      this.hasSearched = false;
+      this.clearSearch();
       return;
     }
 
-    // 实时搜索
-    this.performSearch(keyword);
+    // UX优化：防抖处理，避免用户快速打字时频繁触发搜索
+    if (this.searchTimeout !== -1) {
+      clearTimeout(this.searchTimeout);
+    }
+
+    this.isSearching = true;
+    this.hasSearched = true;
+
+    this.searchTimeout = setTimeout(() => {
+      this.performSearch(keyword);
+    }, 300) as number;
   }
 
   private performSearch(keyword: string) {
-    this.isSearching = true;
-    this.hasSearched = true;
-    
-    // 使用 TrieTree 进行前缀搜索
     let results = this.searchManager.search(keyword);
-    
-    // 如果前缀搜索结果太少，使用模糊搜索补充
+
     if (results.length < 5) {
       const fuzzyResults = this.searchManager.fuzzySearch(keyword);
-      // 合并结果并去重
       const resultIds = new Set(results.map(t => t.id));
       for (const track of fuzzyResults) {
         if (!resultIds.has(track.id)) {
@@ -97,13 +103,17 @@ struct SearchPage {
         }
       }
     }
-    
+
     this.searchResults = results;
     this.isSearching = false;
   }
 
   private onSearchSubmit() {
     if (this.searchKeyword.trim()) {
+      // 如果定时器还在运行，清理掉并立即执行搜索
+      if (this.searchTimeout !== -1) {
+        clearTimeout(this.searchTimeout);
+      }
       this.saveSearchHistory(this.searchKeyword);
       this.performSearch(this.searchKeyword);
     }
@@ -113,15 +123,20 @@ struct SearchPage {
     this.searchKeyword = '';
     this.searchResults = [];
     this.hasSearched = false;
+    this.isSearching = false;
   }
 
-  private clearHistory() {
-    this.searchHistory = [];
-    // TODO: 清除本地存储
+  private async clearHistory() {
+    try {
+      await this.database.clearSearchHistory();
+      this.searchHistory = [];
+    } catch (err) {
+      console.error('清空搜索历史记录失败:', err);
+      this.searchHistory = [];
+    }
   }
 
   private playTrack(track: TrackInfo) {
-    // 设置播放队列并播放
     this.audioSvc.setPlayQueue(this.searchResults.length > 0 ? this.searchResults : [track]);
     this.audioSvc.loadTrack(track);
   }
@@ -134,54 +149,12 @@ struct SearchPage {
     }
   }
 
-  @Builder
-  SearchHistoryItem(keyword: string) {
-    Row() {
-      Image($r('app.media.startIcon'))
-        .width(20)
-        .height(20)
-        .fillColor('#999999')
-        .margin({ right: 12 })
-
-      Text(keyword)
-        .fontSize(14)
-        .fontColor('#333333')
-        .layoutWeight(1)
-
-      Button() {
-        Image($r('app.media.startIcon'))
-          .width(16)
-          .height(16)
-          .fillColor('#CCCCCC')
-      }
-      .type(ButtonType.Circle)
-      .backgroundColor('transparent')
-      .width(32)
-      .height(32)
-      .onClick(() => {
-        // 从历史记录中删除
-        const index = this.searchHistory.indexOf(keyword);
-        if (index > -1) {
-          this.searchHistory.splice(index, 1);
-        }
-      })
-    }
-    .width('100%')
-    .height(48)
-    .padding({ left: 16, right: 8 })
-    .onClick(() => {
-      this.searchKeyword = keyword;
-      this.onSearchSubmit();
-    })
-  }
-
   build() {
     Column() {
       // 顶部搜索栏
       Row() {
-        // 返回按钮
         Button() {
-          Image($r('app.media.startIcon'))
+          Image($r('app.media.startIcon')) // 建议后续替换为具体的返回图标
             .width(24)
             .height(24)
             .fillColor('#333333')
@@ -194,18 +167,20 @@ struct SearchPage {
 
         // 搜索输入框
         Row() {
-          Image($r('app.media.startIcon'))
-            .width(20)
-            .height(20)
+          Image($r('app.media.startIcon')) // 建议后续替换为放大镜图标
+            .width(18)
+            .height(18)
             .fillColor('#999999')
-            .margin({ left: 12 })
+            .margin({ left: 12, right: 8 })
 
           TextInput({ placeholder: '搜索歌曲、歌手、专辑', text: this.searchKeyword })
-            .placeholderColor('#999999')
+            .placeholderColor('#BDBDBD')
             .fontSize(14)
             .height(40)
             .backgroundColor('transparent')
             .layoutWeight(1)
+            .enterKeyType(EnterKeyType.Search) // UX优化：软键盘显示“搜索”按钮
+            .defaultFocus(true) // UX优化：进入页面自动拉起键盘
             .onChange((value: string) => {
               this.onSearchInputChange(value);
             })
@@ -215,7 +190,7 @@ struct SearchPage {
 
           if (this.searchKeyword.length > 0) {
             Button() {
-              Image($r('app.media.startIcon'))
+              Image($r('app.media.startIcon')) // 建议后续替换为清除(X)图标
                 .width(16)
                 .height(16)
                 .fillColor('#999999')
@@ -230,40 +205,50 @@ struct SearchPage {
         }
         .height(40)
         .layoutWeight(1)
-        .backgroundColor('#F5F5F5')
+        .backgroundColor('#F0F0F0')
         .borderRadius(20)
-        .margin({ left: 8, right: 8 })
+        .margin({ left: 4, right: 8 })
 
         // 搜索按钮
-        Button() {
-          Text('搜索')
-            .fontSize(14)
-            .fontColor('#FF4081')
-        }
-        .type(ButtonType.Capsule)
-        .backgroundColor('transparent')
-        .height(40)
-        .onClick(() => this.onSearchSubmit())
+        Text('搜索')
+          .fontSize(15)
+          .fontColor('#FF4081')
+          .fontWeight(FontWeight.Medium)
+          .padding({ left: 8, right: 8 })
+          .onClick(() => this.onSearchSubmit())
       }
       .width('100%')
       .height(56)
-      .padding({ left: 8, right: 8 })
+      .padding({ left: 8, right: 16 })
       .backgroundColor('#FFFFFF')
 
-      // 搜索内容区域
+      // 核心内容区域
       if (this.hasSearched) {
-        // 搜索结果
-        if (this.searchResults.length > 0) {
+        if (this.isSearching) {
+          // UX优化：加载中状态指示
+          Column() {
+            LoadingProgress()
+              .width(40)
+              .height(40)
+              .color('#FF4081')
+              .margin({ bottom: 12 })
+            Text('正在搜索...')
+              .fontSize(14)
+              .fontColor('#999999')
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+        } else if (this.searchResults.length > 0) {
+          // 搜索结果
           List({ space: 0 }) {
-            // 结果统计
             ListItem() {
-              Text(`找到 ${this.searchResults.length} 首歌曲`)
-                .fontSize(14)
+              Text(`找到 ${this.searchResults.length} 首单曲`)
+                .fontSize(13)
                 .fontColor('#999999')
                 .padding({ left: 16, right: 16, top: 12, bottom: 8 })
             }
 
-            // 歌曲列表
             ForEach(this.searchResults, (track: TrackInfo, index: number) => {
               ListItem() {
                 TrackItem({
@@ -277,128 +262,135 @@ struct SearchPage {
           }
           .width('100%')
           .layoutWeight(1)
-          .divider({ strokeWidth: 0.5, color: '#EEEEEE' })
+          .divider({
+            strokeWidth: 0.5,
+            color: '#F0F0F0',
+            startMargin: 16,
+            endMargin: 16
+          })
         } else {
-          // 无结果
+          // 空状态优化
           Column() {
-            Image($r('app.media.startIcon'))
-              .width(80)
-              .height(80)
-              .fillColor('#CCCCCC')
+            Image($r('app.media.startIcon')) // 建议替换为缺省页插图
+              .width(100)
+              .height(100)
+              .opacity(0.3)
               .margin({ bottom: 16 })
 
             Text('未找到相关歌曲')
               .fontSize(16)
-              .fontColor('#999999')
+              .fontColor('#666666')
+              .fontWeight(FontWeight.Medium)
               .margin({ bottom: 8 })
 
-            Text('换个关键词试试吧')
-              .fontSize(14)
-              .fontColor('#CCCCCC')
+            Text('请检查拼写或尝试其他关键词')
+              .fontSize(13)
+              .fontColor('#999999')
           }
           .width('100%')
           .layoutWeight(1)
           .justifyContent(FlexAlign.Center)
         }
       } else {
-        // 搜索历史和推荐
+        // 搜索历史和推荐区
         Scroll() {
-          Column({ space: 16 }) {
+          Column({ space: 20 }) {
             // 搜索历史
             if (this.searchHistory.length > 0) {
-              Column({ space: 0 }) {
+              Column({ space: 12 }) {
                 Row() {
                   Text('搜索历史')
-                    .fontSize(16)
+                    .fontSize(15)
                     .fontWeight(FontWeight.Bold)
                     .fontColor('#333333')
 
-                  Button() {
-                    Text('清除')
-                      .fontSize(14)
-                      .fontColor('#999999')
-                  }
-                  .type(ButtonType.Capsule)
-                  .backgroundColor('transparent')
-                  .height(32)
-                  .onClick(() => this.clearHistory())
+                  Blank() // 自动推开两边
+
+                  Image($r('app.media.startIcon')) // 建议替换为垃圾桶图标
+                    .width(18)
+                    .height(18)
+                    .fillColor('#999999')
+                    .onClick(() => this.clearHistory())
                 }
                 .width('100%')
-                .justifyContent(FlexAlign.SpaceBetween)
-                .padding({ left: 16, right: 8, top: 16, bottom: 8 })
+                .padding({ left: 4, right: 4 })
 
-                // 历史记录标签
                 Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap }) {
                   ForEach(this.searchHistory, (keyword: string) => {
-                    Button() {
-                      Text(keyword)
-                        .fontSize(14)
-                        .fontColor('#666666')
-                    }
-                    .type(ButtonType.Capsule)
-                    .backgroundColor('#F5F5F5')
-                    .height(32)
-                    .margin({ right: 8, bottom: 8 })
-                    .onClick(() => {
-                      this.searchKeyword = keyword;
-                      this.onSearchSubmit();
-                    })
+                    Text(keyword)
+                      .fontSize(13)
+                      .fontColor('#555555')
+                      .backgroundColor('#F5F5F5')
+                      .padding({
+                        left: 14,
+                        right: 14,
+                        top: 6,
+                        bottom: 6
+                      })
+                      .borderRadius(16)
+                      .margin({ right: 10, bottom: 10 })
+                      .onClick(() => {
+                        this.searchKeyword = keyword;
+                        this.onSearchSubmit();
+                      })
                   })
                 }
                 .width('100%')
-                .padding({ left: 16, right: 16, bottom: 16 })
               }
               .width('100%')
-              .backgroundColor('#FFFFFF')
-              .borderRadius(12)
-              .margin({ left: 16, right: 16 })
+              .padding({ left: 16, right: 16, top: 20 })
             }
 
             // 热门搜索
-            Column({ space: 0 }) {
+            Column({ space: 12 }) {
               Text('热门搜索')
-                .fontSize(16)
+                .fontSize(15)
                 .fontWeight(FontWeight.Bold)
                 .fontColor('#333333')
                 .width('100%')
-                .padding({ left: 16, right: 16, top: 16, bottom: 12 })
+                .padding({ left: 4 })
 
               Column({ space: 0 }) {
                 ForEach(['周杰伦', '林俊杰', '薛之谦', '邓紫棋', '陈奕迅', 'Taylor Swift'], (keyword: string, index: number) => {
                   Row() {
                     Text((index + 1).toString())
-                      .fontSize(14)
-                      .fontWeight(index < 3 ? FontWeight.Bold : FontWeight.Normal)
-                      .fontColor(index < 3 ? '#FF4081' : '#999999')
-                      .width(24)
+                      .fontSize(15)
+                      .fontWeight(index < 3 ? FontWeight.Bold : FontWeight.Medium)
+                      .fontColor(index < 3 ? '#FF4081' : '#BDBDBD')
+                      .width(28)
 
                     Text(keyword)
                       .fontSize(14)
                       .fontColor('#333333')
                       .layoutWeight(1)
 
-                    Image($r('app.media.startIcon'))
-                      .width(16)
-                      .height(16)
-                      .fillColor('#CCCCCC')
+                    if (index < 3) {
+                      Text('HOT')
+                        .fontSize(9)
+                        .fontColor('#FF4081')
+                        .fontStyle(FontStyle.Italic)
+                        .fontWeight(FontWeight.Bold)
+                    }
                   }
                   .width('100%')
-                  .height(48)
-                  .padding({ left: 16, right: 16 })
+                  .height(44)
                   .onClick(() => {
                     this.searchKeyword = keyword;
                     this.onSearchSubmit();
                   })
                 })
               }
+              .backgroundColor('#FFFFFF')
+              .borderRadius(12)
+              .padding(12)
+              // 轻微阴影提升卡片质感
+              .shadow({ radius: 10, color: 'rgba(0,0,0,0.03)', offsetY: 2 })
             }
             .width('100%')
-            .backgroundColor('#FFFFFF')
-            .borderRadius(12)
-            .margin({ left: 16, right: 16 })
+            .padding({ left: 16, right: 16 })
           }
           .width('100%')
-          .padding({ top: 8, bottom: 8 })
+          .padding({ bottom: 32 })
         }
         .width('100%')
         .layoutWeight(1)
@@ -407,6 +399,6 @@ struct SearchPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor('#FAFAFA') // 背景稍微调亮一点点，让纯白卡片更凸显
   }
 }

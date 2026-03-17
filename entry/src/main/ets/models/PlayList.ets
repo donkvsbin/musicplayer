@@ -54,11 +54,11 @@ export class PlayList {
       'name': this.name,
       'create_at': this.createAt
     };
-    
+
     if (this.id > 0) {
       bucket['id'] = this.id;
     }
-    
+
     return bucket;
   }
 
