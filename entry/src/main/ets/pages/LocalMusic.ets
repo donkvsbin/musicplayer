@@ -8,6 +8,7 @@ import { TrackInfo } from '../models/TrackInfo';
 import { Database } from '../services/Database';
 import { AudioSvc } from '../services/AudioSvc';
 import { TrackItem } from '../views/TrackItem';
+import { MiniPlayer } from '../views/MiniPlayer';
 
 @Entry
 @Component
@@ -56,16 +57,13 @@ struct LocalMusicPage {
   private playTrack(track: TrackInfo) {
     console.info(`准备播放: ${track.title}, 文件路径: ${track.filePath}`);
     
-    // 设置播放队列为所有歌曲
-    this.audioSvc.setPlayQueue(this.tracks);
+    // 找到点击歌曲在列表中的索引
+    const trackIndex = this.tracks.findIndex(t => t.id === track.id);
     
-    // 加载并播放
-    this.audioSvc.loadTrack(track).then((): void => {
-      console.info('歌曲加载成功');
-      this.currentTrackId = track.id;
-    }).catch((err: Error): void => {
-      console.error('歌曲加载失败:', err);
-    });
+    // 设置播放队列为所有歌曲，并从点击的歌曲开始播放
+    this.audioSvc.setPlayQueue(this.tracks, trackIndex >= 0 ? trackIndex : 0);
+    
+    this.currentTrackId = track.id;
   }
 
   private async navigateBack() {
@@ -105,8 +103,8 @@ struct LocalMusicPage {
         Row().width(44).height(44)
       }
       .width('100%')
-      .height(56)
-      .padding({ left: 8, right: 8 })
+      .height(80)
+      .padding({ left: 8, right: 8 ,top: 30})
       .backgroundColor('#FFFFFF')
 
       // 歌曲数量
@@ -168,7 +166,21 @@ struct LocalMusicPage {
         .width('100%')
         .layoutWeight(1)
         .divider({ strokeWidth: 0.5, color: '#EEEEEE' })
+        // 底部留白给迷你播放器
+        .padding({ bottom: 64 })
       }
+
+      // 迷你播放条（固定在底部最上层）
+      Column() {
+        MiniPlayer({
+          onExpand: (): void => { 
+            router.pushUrl({ url: 'pages/Player' });
+          }
+        })
+      }
+      .width('100%')
+      .position({ bottom: 0 })
+      .zIndex(100)
     }
     .width('100%')
     .height('100%')

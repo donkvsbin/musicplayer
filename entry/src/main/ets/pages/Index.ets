@@ -265,10 +265,27 @@ struct Index {
     }
   }
 
+  private async navigateToFavorite() {
+    try {
+      await router.pushUrl({ url: 'pages/FavoriteMusic' });
+    } catch (err) {
+      console.error('导航到我喜欢的音乐失败:', err);
+    }
+  }
+
+  private async navigateToRecentPlay() {
+    try {
+      await router.pushUrl({ url: 'pages/RecentPlay' });
+    } catch (err) {
+      console.error('导航到最近播放失败:', err);
+    }
+  }
+
   private playTrack(track: TrackInfo) {
-    // 设置播放队列并播放
-    this.audioSvc.setPlayQueue(this.recentTracks);
-    this.audioSvc.loadTrack(track);
+    // 找到点击歌曲在列表中的索引
+    const trackIndex = this.recentTracks.findIndex(t => t.id === track.id);
+    // 设置播放队列并从点击的歌曲开始播放
+    this.audioSvc.setPlayQueue(this.recentTracks, trackIndex >= 0 ? trackIndex : 0);
   }
 
   @Builder
@@ -319,14 +336,13 @@ struct Index {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       Column() {
-        // 顶部导航栏
+        // 顶部导航栏（下移避开状态栏）
         Row() {
           // 菜单按钮
           Button() {
-            Image($r('app.media.startIcon'))
+            Image($r('app.media.icon'))
               .width(24)
               .height(24)
-              .fillColor('#333333')
           }
           .type(ButtonType.Circle)
           .backgroundColor('transparent')
@@ -335,7 +351,7 @@ struct Index {
 
           // 搜索框
           Row() {
-            Image($r('app.media.icon'))
+            Image($r('app.media.icon_music_note'))
               .width(20)
               .height(20)
               .fillColor('#999999')
@@ -356,10 +372,9 @@ struct Index {
 
           // 设置按钮
           Button() {
-            Image($r('app.media.startIcon'))
+            Image($r('app.media.icon'))
               .width(24)
               .height(24)
-              .fillColor('#333333')
           }
           .type(ButtonType.Circle)
           .backgroundColor('transparent')
@@ -367,8 +382,8 @@ struct Index {
           .height(44)
         }
         .width('100%')
-        .height(56)
-        .padding({ left: 8, right: 8 })
+        .height(80)
+        .padding({ left: 8, right: 8, top: 40 })
 
         // 内容区域
         Scroll() {
@@ -380,7 +395,7 @@ struct Index {
                   Text(`推荐歌单 ${item}`)
                     .fontSize(18)
                     .fontWeight(FontWeight.Bold)
-                    .fontColor('#FFFFFF')
+                    .fontColor('#FFFFFF') 
                 }
                 .width('100%')
                 .height(160)
@@ -392,6 +407,7 @@ struct Index {
             .height(160)
             .itemSpace(12)
             .padding({ left: 16, right: 16 })
+            .margin({ top: 10 })
 
             // 我的本地音乐
             Column({ space: 0 }) {
@@ -417,7 +433,7 @@ struct Index {
                 title: '我喜欢的音乐',
                 subtitle: '收藏的歌曲',
                 count: this.favoritePlaylist?.trackCount || 0,
-                onClick: () => {}
+                onClick: (): void => { this.navigateToFavorite(); }
               })
 
               Divider().padding({ left: 56 })
@@ -437,7 +453,7 @@ struct Index {
                 title: '最近播放',
                 subtitle: '最近听过的歌曲',
                 count: this.recentTracks.length,
-                onClick: () => {}
+                onClick: (): void => { this.navigateToRecentPlay(); }
               })
             }
             .width('100%')
@@ -512,7 +528,7 @@ struct Index {
             Blank().height(80)
           }
           .width('100%')
-          .padding({ top: 8, bottom: 8 })
+          .padding({ top: 0, bottom: 8 })
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
@@ -520,8 +536,10 @@ struct Index {
       .width('100%')
       .height('100%')
       .backgroundColor('#F5F5F5')
+      // 底部留白给迷你播放器
+      .padding({ bottom: 64 })
 
-      // 迷你播放条
+      // 迷你播放条（固定在底部最上层）
       Column() {
         MiniPlayer({
           onExpand: (): void => { this.navigateToPlayer(); }
@@ -529,6 +547,7 @@ struct Index {
       }
       .width('100%')
       .position({ bottom: 0 })
+      .zIndex(100)
     }
     .width('100%')
     .height('100%')

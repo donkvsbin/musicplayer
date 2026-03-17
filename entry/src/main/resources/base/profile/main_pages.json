@@ -3,6 +3,8 @@
     "pages/Index",
     "pages/Player",
     "pages/Search",
-    "pages/LocalMusic"
+    "pages/LocalMusic",
+    "pages/FavoriteMusic",
+    "pages/RecentPlay"
   ]
 }

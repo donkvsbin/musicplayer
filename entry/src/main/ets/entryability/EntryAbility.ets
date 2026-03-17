@@ -92,7 +92,7 @@ export default class EntryAbility extends UIAbility {
 
   /**
    * 设置窗口布局
-   * 使用安全区域布局，保留状态栏显示
+   * 设置状态栏和导航栏背景色与 App 背景一致
    */
   private setWindowImmersive(windowStage: window.WindowStage): void {
     windowStage.getMainWindow((err, window) => {
@@ -101,13 +101,38 @@ export default class EntryAbility extends UIAbility {
         return;
       }
       
-      // 设置布局为安全区域（避开状态栏和导航栏）
-      window.setLayoutFullScreen(false)
+      // 设置布局为全屏，让应用绘制到状态栏和导航栏区域
+      window.setLayoutFullScreen(true)
         .then(() => {
           hilog.info(DOMAIN, 'testTag', 'Set layout fullscreen success');
         })
         .catch((err: Error) => {
           hilog.error(DOMAIN, 'testTag', 'Failed to set layout fullscreen. Cause: %{public}s', JSON.stringify(err));
+        });
+      
+      // 设置状态栏背景色（透明，让应用背景显示出来）
+      window.setWindowSystemBarEnable(['status', 'navigation'])
+        .then(() => {
+          hilog.info(DOMAIN, 'testTag', 'Set system bar enable success');
+        })
+        .catch((err: Error) => {
+          hilog.error(DOMAIN, 'testTag', 'Failed to set system bar enable. Cause: %{public}s', JSON.stringify(err));
+        });
+      
+      // 设置系统栏背景颜色为透明
+      const systemBarProperties: window.SystemBarProperties = {
+        statusBarColor: '#00000000',  // 透明
+        navigationBarColor: '#00000000',  // 透明
+        statusBarContentColor: '#000000',  // 状态栏文字黑色
+        navigationBarContentColor: '#000000'  // 导航栏文字黑色
+      };
+      
+      window.setWindowSystemBarProperties(systemBarProperties)
+        .then(() => {
+          hilog.info(DOMAIN, 'testTag', 'Set system bar properties success');
+        })
+        .catch((err: Error) => {
+          hilog.error(DOMAIN, 'testTag', 'Failed to set system bar properties. Cause: %{public}s', JSON.stringify(err));
         });
     });
   }

@@ -213,18 +213,11 @@ struct Player {
             }
           })
 
-          Text('正在播放')
-            .fontSize(18)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#FFFFFF')
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-
-
         }
         .width('100%')
         .height(56)
-        .padding({ left: 8, right: 8 })
+        .padding({ left: 8, right: 8 ,top: 40})
+        .backgroundColor('transparent')
 
         // 中间内容区域
         Column() {
@@ -413,12 +406,14 @@ struct Player {
           .height(80)
           .padding({ left: 24, right: 24 })
           .margin({ bottom: 16 })
+          .backgroundColor('transparent')
         }
         .width('100%')
         .layoutWeight(1)
       }
       .width('100%')
       .height('100%')
+      .backgroundColor('transparent')
     }
     .width('100%')
     .height('100%')

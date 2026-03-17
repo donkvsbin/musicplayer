@@ -81,7 +81,7 @@ export struct TrackItem {
         } else {
           // 默认封面
           Column() {
-            Image($r('app.media.startIcon'))
+            Image($r('app.media.icon_music_note'))
               .width(24)
               .height(24)
               .fillColor('#CCCCCC')
@@ -96,7 +96,7 @@ export struct TrackItem {
         // 正在播放指示器
         if (this.isPlaying) {
           Column() {
-            Image($r('app.media.startIcon'))
+            Image($r('app.media.icon_play'))
               .width(20)
               .height(20)
               .fillColor('#FFFFFF')
@@ -144,11 +144,10 @@ export struct TrackItem {
       // 更多按钮
       if (this.showMore) {
         Button() {
-          Image($r('app.media.startIcon'))
+          Image($r('app.media.icon_arrow_right'))
             .width(20)
             .height(20)
             .fillColor('#999999')
-            .rotate({ angle: 90 })
         }
         .type(ButtonType.Circle)
         .backgroundColor('transparent')

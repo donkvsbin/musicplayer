@@ -10,6 +10,7 @@ import { AudioSvc } from '../services/AudioSvc';
 import { SearchManager } from '../utils/TrieTree';
 import { TrackItem } from '../views/TrackItem';
 import { SearchHistory } from '../models/SearchHistory';
+import { MiniPlayer } from '../views/MiniPlayer';
 
 @Entry
 @Component
@@ -154,7 +155,7 @@ struct SearchPage {
       // 顶部搜索栏
       Row() {
         Button() {
-          Image($r('app.media.startIcon')) // 建议后续替换为具体的返回图标
+          Image($r('app.media.icon_back'))
             .width(24)
             .height(24)
             .fillColor('#333333')
@@ -167,7 +168,7 @@ struct SearchPage {
 
         // 搜索输入框
         Row() {
-          Image($r('app.media.startIcon')) // 建议后续替换为放大镜图标
+          Image($r('app.media.icon_music_note'))
             .width(18)
             .height(18)
             .fillColor('#999999')
@@ -190,10 +191,11 @@ struct SearchPage {
 
           if (this.searchKeyword.length > 0) {
             Button() {
-              Image($r('app.media.startIcon')) // 建议后续替换为清除(X)图标
+              Image($r('app.media.icon_back'))
                 .width(16)
                 .height(16)
                 .fillColor('#999999')
+                .rotate({ angle: 180 })
             }
             .type(ButtonType.Circle)
             .backgroundColor('transparent')
@@ -218,8 +220,8 @@ struct SearchPage {
           .onClick(() => this.onSearchSubmit())
       }
       .width('100%')
-      .height(56)
-      .padding({ left: 8, right: 16 })
+      .height(80)
+      .padding({ left: 8, right: 16, top:40 })
       .backgroundColor('#FFFFFF')
 
       // 核心内容区域
@@ -271,7 +273,7 @@ struct SearchPage {
         } else {
           // 空状态优化
           Column() {
-            Image($r('app.media.startIcon')) // 建议替换为缺省页插图
+            Image($r('app.media.icon_music_note'))
               .width(100)
               .height(100)
               .opacity(0.3)
@@ -306,7 +308,7 @@ struct SearchPage {
 
                   Blank() // 自动推开两边
 
-                  Image($r('app.media.startIcon')) // 建议替换为垃圾桶图标
+                  Image($r('app.media.icon_playlist'))
                     .width(18)
                     .height(18)
                     .fillColor('#999999')
@@ -390,15 +392,29 @@ struct SearchPage {
             .padding({ left: 16, right: 16 })
           }
           .width('100%')
-          .padding({ bottom: 32 })
+          .padding({ bottom: 200 })
         }
         .width('100%')
         .layoutWeight(1)
         .scrollBar(BarState.Off)
+        // 底部留白给迷你播放器
+        .padding({ bottom: 64 })
       }
+
+      // 迷你播放条（固定在底部最上层）
+      Column() {
+        MiniPlayer({
+          onExpand: (): void => { 
+            router.pushUrl({ url: 'pages/Player' });
+          }
+        })
+      }
+      .width('100%')
+      .position({ bottom: 0 })
+      .zIndex(100)
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FAFAFA') // 背景稍微调亮一点点，让纯白卡片更凸显
+    .backgroundColor('#FAFAFA')
   }
 }

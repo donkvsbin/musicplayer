@@ -164,6 +164,13 @@ export class ID3Parser {
             // 封面图片
             info.coverData = ID3Parser.extractCoverData(dataView, offset + 10, frameSize);
             break;
+          case 'TLEN':
+            // 时长（毫秒）
+            const durationMs = parseInt(frameData, 10);
+            if (!isNaN(durationMs) && durationMs > 0) {
+              info.duration = durationMs;
+            }
+            break;
         }
         
         offset += 10 + frameSize;
@@ -377,12 +384,80 @@ export class ID3Parser {
       const stat = fileIo.statSync(filePath);
       const fileSize = stat.size;
       
-      // 默认比特率 128 kbps = 16000 bytes/second
-      const defaultBitrate = 16000;
-      const estimatedSeconds = fileSize / defaultBitrate;
+      // 尝试从文件头部读取比特率信息
+      let bitrate = 128000; // 默认 128 kbps（bits per second）
+      
+      try {
+        const file = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY);
+        const headerBuffer = new ArrayBuffer(4);
+        const headerView = new DataView(headerBuffer);
+        
+        // 读取前4个字节检查帧头
+        fileIo.readSync(file.fd, headerBuffer, { offset: 0, length: 4 });
+        
+        // 检查是否是 ID3 标签，如果是则跳过
+        const id3Tag = ID3Parser.readString(headerView, 0, 3);
+        let dataOffset = 0;
+        
+        if (id3Tag === 'ID3') {
+          // ID3v2 标签，读取标签大小
+          const tagSize = ID3Parser.readSyncSafeInt(headerView, 6);
+          dataOffset = 10 + tagSize; // ID3 头(10字节) + 标签大小
+        }
+        
+        // 尝试找到第一个 MP3 帧头
+        // 读取更多数据来查找帧头
+        const searchBuffer = new ArrayBuffer(4096);
+        fileIo.readSync(file.fd, searchBuffer, { offset: dataOffset, length: 4096 });
+        const searchView = new DataView(searchBuffer);
+        
+        // 查找 MP3 帧同步字 (11个1: 0xFFE)
+        for (let i = 0; i < 4092; i++) {
+          const byte1 = searchView.getUint8(i);
+          const byte2 = searchView.getUint8(i + 1);
+          
+          // 检查帧同步 (0xFFE)
+          if (byte1 === 0xFF && (byte2 & 0xE0) === 0xE0) {
+            // 找到帧头，解析比特率
+            const byte3 = searchView.getUint8(i + 2);
+            const bitrateIndex = (byte3 >> 4) & 0x0F;
+            
+            // MPEG 版本和层信息
+            const mpegVersion = (byte2 >> 3) & 0x03;
+            const layer = (byte2 >> 1) & 0x03;
+            
+            // 比特率表 (Layer III)
+            const bitrateTable: number[] = [
+              0, 32000, 40000, 48000, 56000, 64000, 80000, 96000,
+              112000, 128000, 160000, 192000, 224000, 256000, 320000, 0
+            ];
+            
+            if (bitrateIndex > 0 && bitrateIndex < 15) {
+              bitrate = bitrateTable[bitrateIndex];
+              console.info(`检测到比特率: ${bitrate / 1000} kbps`);
+              break;
+            }
+          }
+        }
+        
+        fileIo.closeSync(file);
+      } catch (err) {
+        console.warn('读取比特率失败，使用默认值:', err);
+      }
+      
+      // 计算音频数据大小（减去 ID3 标签的估算大小）
+      // 估算 ID3 标签大小为文件大小的 1% 到 10%
+      const estimatedTagSize = Math.min(fileSize * 0.1, 100 * 1024); // 最多 100KB
+      const audioDataSize = fileSize - estimatedTagSize;
+      
+      // 计算时长: (文件大小 - 标签大小) * 8 / 比特率
+      const estimatedSeconds = (audioDataSize * 8) / bitrate;
+      
+      console.info(`文件大小: ${fileSize}, 估算音频大小: ${audioDataSize}, 比特率: ${bitrate}, 估算时长: ${estimatedSeconds}s`);
       
       return Math.floor(estimatedSeconds * 1000);
     } catch (err) {
+      console.error('估算时长失败:', err);
       return 0;
     }
   }
