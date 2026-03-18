@@ -367,7 +367,7 @@ struct Index {
         Row() {
           // 菜单按钮
           Button() {
-            Image($r('app.media.startIcon'))
+            Image($r('app.media.icon_menu'))
               .width(24)
               .height(24)
               .fillColor('#333333')
@@ -400,7 +400,7 @@ struct Index {
 
           // 设置按钮
           Button() {
-            Image($r('app.media.startIcon'))
+            Image($r('app.media.icon_setting'))
               .width(24)
               .height(24)
               .fillColor('#333333')
