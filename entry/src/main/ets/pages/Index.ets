@@ -12,6 +12,7 @@ import { Database } from '../services/Database';
 import { AudioSvc } from '../services/AudioSvc';
 import { MiniPlayer } from '../views/MiniPlayer';
 import { DEFAULT_PLAYLIST_FAVORITE, DEFAULT_PLAYLIST_RECENT, AUDIO_EXTENSIONS } from '../constants/AppConstants';
+import { PlaybackStateStore } from '../utils/PlaybackStateStore';
 
 interface MenuItem {
   icon: Resource;
@@ -69,6 +70,9 @@ struct Index {
       
       // 加载数据
       await this.loadData();
+      
+      // 恢复上次播放状态
+      await this.restorePlaybackState(context);
     } catch (err) {
       console.error('初始化服务失败:', err);
     }
@@ -138,6 +142,30 @@ struct Index {
       this.recentTracks = allTracks.slice(0, 10);
     } catch (err) {
       console.error('加载数据失败:', err);
+    }
+  }
+
+  /**
+   * 恢复上次播放状态
+   */
+  private async restorePlaybackState(context: Context) {
+    try {
+      const savedState = await PlaybackStateStore.load(context);
+      if (!savedState) {
+        return;
+      }
+
+      // 获取所有歌曲用于重建播放队列
+      const allTracks = await this.database.getAllTracks();
+      if (allTracks.length === 0) {
+        return;
+      }
+
+      // 恢复播放状态
+      await this.audioSvc.restorePlaybackState(savedState, allTracks);
+      console.info(`[Index] 恢复播放状态成功: ${savedState.trackTitle}`);
+    } catch (err) {
+      console.error('恢复播放状态失败');
     }
   }
 
@@ -265,6 +293,22 @@ struct Index {
     }
   }
 
+  private async navigateToFavorite() {
+    try {
+      await router.pushUrl({ url: 'pages/FavoriteMusic' });
+    } catch (err) {
+      console.error('导航到我喜欢的音乐失败:', err);
+    }
+  }
+
+  private async navigateToRecentPlay() {
+    try {
+      await router.pushUrl({ url: 'pages/RecentPlay' });
+    } catch (err) {
+      console.error('导航到最近播放失败:', err);
+    }
+  }
+
   private playTrack(track: TrackInfo) {
     // 设置播放队列并播放
     this.audioSvc.setPlayQueue(this.recentTracks);
@@ -367,8 +411,8 @@ struct Index {
           .height(44)
         }
         .width('100%')
-        .height(56)
-        .padding({ left: 8, right: 8 })
+        .height(80)
+        .padding({ left: 8, right: 8 , top: 40})
 
         // 内容区域
         Scroll() {
@@ -417,7 +461,7 @@ struct Index {
                 title: '我喜欢的音乐',
                 subtitle: '收藏的歌曲',
                 count: this.favoritePlaylist?.trackCount || 0,
-                onClick: () => {}
+                onClick: (): void => { this.navigateToFavorite(); }
               })
 
               Divider().padding({ left: 56 })
@@ -437,7 +481,7 @@ struct Index {
                 title: '最近播放',
                 subtitle: '最近听过的歌曲',
                 count: this.recentTracks.length,
-                onClick: () => {}
+                onClick: (): void => { this.navigateToRecentPlay(); }
               })
             }
             .width('100%')

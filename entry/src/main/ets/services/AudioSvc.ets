@@ -10,6 +10,7 @@ import { emitter } from '@kit.BasicServicesKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { TrackInfo } from '../models/TrackInfo';
 import { PlayerState, PlayMode } from '../constants/AppConstants';
+import { SavedPlaybackState } from '../utils/PlaybackStateStore';
 
 /**
  * 播放进度信息
@@ -625,6 +626,60 @@ export class AudioSvc {
     };
 
     emitter.emit({ eventId: 3 }, eventData);
+  }
+
+  /**
+   * 获取当前播放状态（用于持久化保存）
+   */
+  getPlaybackStateForSave(): SavedPlaybackState | null {
+    if (!this.currentTrack) {
+      return null;
+    }
+
+    const queueIds: number[] = this.playQueue.map((t: TrackInfo): number => t.id);
+
+    return {
+      trackId: this.currentTrack.id,
+      trackTitle: this.currentTrack.title,
+      trackArtist: this.currentTrack.artist || '',
+      trackFile: this.currentTrack.filePath,
+      trackDuration: this.currentTrack.duration,
+      trackCover: this.currentTrack.coverUri || '',
+      trackAlbum: this.currentTrack.album || '',
+      position: this.getCurrentPosition(),
+      queueIds: JSON.stringify(queueIds),
+      queueIndex: this.currentIndex,
+      playMode: this.playMode
+    };
+  }
+
+  /**
+   * 恢复播放状态
+   * @param state 保存的状态
+   * @param tracks 从数据库加载的歌曲列表（用于重建播放队列）
+   */
+  async restorePlaybackState(state: SavedPlaybackState, tracks: TrackInfo[]): Promise<void> {
+    if (tracks.length === 0) {
+      return;
+    }
+
+    // 恢复播放模式
+    this.playMode = state.playMode as PlayMode;
+
+    // 重建播放队列
+    this.playQueue = tracks;
+
+    // 找到当前歌曲
+    const currentTrack = tracks.find((t: TrackInfo): boolean => t.id === state.trackId);
+    if (currentTrack) {
+      this.currentIndex = state.queueIndex >= 0 && state.queueIndex < tracks.length ? state.queueIndex : 0;
+      await this.loadTrack(currentTrack);
+      // 恢复播放进度
+      if (state.position > 0) {
+        this.seekTo(state.position);
+      }
+      console.info(`[AudioSvc] 恢复播放状态: ${currentTrack.title}, 进度 ${state.position}ms`);
+    }
   }
 
   /**

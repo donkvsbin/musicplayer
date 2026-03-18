@@ -2,6 +2,8 @@ import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.Ab
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { abilityAccessCtrl, PermissionRequestResult, Permissions } from '@kit.AbilityKit';
+import { AudioSvc } from '../services/AudioSvc';
+import { PlaybackStateStore } from '../utils/PlaybackStateStore';
 
 const DOMAIN = 0x0000;
 
@@ -27,6 +29,8 @@ export default class EntryAbility extends UIAbility {
 
   onDestroy(): void {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
+    // 保存播放状态
+    this.savePlaybackState();
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
@@ -58,6 +62,8 @@ export default class EntryAbility extends UIAbility {
   onBackground(): void {
     // Ability has back to background
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
+    // 保存播放状态
+    this.savePlaybackState();
   }
 
   /**
@@ -135,5 +141,21 @@ export default class EntryAbility extends UIAbility {
           hilog.error(DOMAIN, 'testTag', 'Failed to set system bar properties. Cause: %{public}s', JSON.stringify(err));
         });
     });
+  }
+
+  /**
+   * 保存播放状态
+   */
+  private savePlaybackState(): void {
+    try {
+      const audioSvc = AudioSvc.getInstance();
+      const state = audioSvc.getPlaybackStateForSave();
+      if (state) {
+        PlaybackStateStore.save(this.context, state);
+        hilog.info(DOMAIN, 'testTag', 'Playback state saved: %s', state.trackTitle);
+      }
+    } catch (err) {
+      hilog.error(DOMAIN, 'testTag', 'Failed to save playback state');
+    }
   }
 }
