@@ -157,7 +157,7 @@ export struct TrackItem {
         // 正在播放指示器
         if (this.isPlaying) {
           Column() {
-            Image($r('app.media.icon_play'))
+            Image($r('app.media.icon_playing2'))
               .width(20)
               .height(20)
               .fillColor('#FFFFFF')

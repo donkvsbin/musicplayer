@@ -99,6 +99,8 @@ struct Index {
   private scannerWorker: worker.ThreadWorker | null = null;
   private appContext: Context | null = null;
 
+  private isInitialized: boolean = false;
+
   aboutToAppear() {
     // 初始化数据库和音频服务
     this.initServices();
@@ -113,6 +115,35 @@ struct Index {
         console.error('终止 Worker 失败:', err);
       }
       this.scannerWorker = null;
+    }
+  }
+
+  onPageShow() {
+    // 页面显示时刷新歌单列表
+    console.info('Index onPageShow 被调用');
+    this.refreshPlaylists();
+  }
+
+  private async refreshPlaylists() {
+    // 确保数据库已初始化
+    if (!this.isInitialized) {
+      console.info('数据库未初始化，跳过刷新');
+      return;
+    }
+    
+    try {
+      // 重新获取歌曲总数
+      this.trackCount = await this.database.getTrackCount();
+      
+      // 刷新歌单列表
+      const allPlaylists = await this.database.getAllPlaylists();
+      this.playlists = allPlaylists.filter((p: PlayList): boolean =>
+        p.name !== DEFAULT_PLAYLIST_FAVORITE && p.name !== DEFAULT_PLAYLIST_RECENT
+      );
+      
+      console.info('刷新歌单列表完成，歌单数量:', this.playlists.length);
+    } catch (err) {
+      console.error('刷新歌单列表失败:', err);
     }
   }
 
@@ -132,6 +163,9 @@ struct Index {
       
       // 加载数据
       await this.loadData();
+      
+      // 标记初始化完成
+      this.isInitialized = true;
     } catch (err) {
       console.error('初始化服务失败:', err);
     }
@@ -154,11 +188,15 @@ struct Index {
       // 获取 rawfile 列表
       const rawFiles = await resourceManager.getRawFileList('');
       console.info('rawfile 文件列表:', JSON.stringify(rawFiles));
+      console.info('rawfile 文件数量:', rawFiles.length);
       
+      let copiedCount = 0;
       for (const fileName of rawFiles) {
         // 检查是否是音频文件
         const lowerName = fileName.toLowerCase();
         const isAudio = AUDIO_EXTENSIONS.some((ext: string): boolean => lowerName.endsWith(ext));
+        
+        console.info('检查文件:', fileName, ', 是否音频:', isAudio);
         
         if (isAudio) {
           const targetPath = musicDir + '/' + fileName;
@@ -172,17 +210,23 @@ struct Index {
             // 文件不存在，继续复制
           }
           
-          // 读取 rawfile 内容
-          const rawContent = await resourceManager.getRawFileContent(fileName);
-          
-          // 写入到沙箱目录
-          const file = fileIo.openSync(targetPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY);
-          fileIo.writeSync(file.fd, rawContent.buffer);
-          fileIo.closeSync(file);
-          
-          console.info('已复制音乐文件:', targetPath);
+          try {
+            // 读取 rawfile 内容
+            const rawContent = await resourceManager.getRawFileContent(fileName);
+            
+            // 写入到沙箱目录
+            const file = fileIo.openSync(targetPath, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY);
+            fileIo.writeSync(file.fd, rawContent.buffer);
+            fileIo.closeSync(file);
+            
+            copiedCount++;
+            console.info('已复制音乐文件:', targetPath);
+          } catch (copyErr) {
+            console.error('复制文件失败:', fileName, copyErr);
+          }
         }
       }
+      console.info('复制完成，共复制', copiedCount, '个文件');
     } catch (err) {
       console.error('复制 rawfile 音乐失败:', err);
     }

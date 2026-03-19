@@ -551,6 +551,34 @@ export class Database {
   }
 
   /**
+   * 更新歌单信息
+   * @param id 歌单 ID
+   * @param name 歌单名称
+   * @param description 歌单描述
+   */
+  async updatePlaylist(id: number, name: string, description: string): Promise<void> {
+    if (!this.rdbStore) {
+      throw new Error('数据库未初始化');
+    }
+
+    try {
+      const values: relationalStore.ValuesBucket = {
+        'name': name,
+        'description': description
+      };
+
+      const predicates = new relationalStore.RdbPredicates(PLAYLIST_TABLE);
+      predicates.equalTo('id', id);
+
+      const updateRows = await this.rdbStore.update(values, predicates);
+      console.info(`更新歌单成功: ${id}, 影响行数: ${updateRows}`);
+    } catch (err) {
+      console.error('更新歌单失败:', err);
+      throw new Error(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
    * 删除歌单
    * @param id 歌单 ID
    */
@@ -560,9 +588,14 @@ export class Database {
     }
 
     try {
+      // 先删除歌单与歌曲的关联
+      const trackPredicates = new relationalStore.RdbPredicates(PLAYLIST_TRACK_TABLE);
+      trackPredicates.equalTo('playlist_id', id);
+      await this.rdbStore.delete(trackPredicates);
+
+      // 再删除歌单
       const predicates = new relationalStore.RdbPredicates(PLAYLIST_TABLE);
       predicates.equalTo('id', id);
-
       const deleteRows = await this.rdbStore.delete(predicates);
       console.info(`删除歌单成功: ${id}, 影响行数: ${deleteRows}`);
     } catch (err) {
