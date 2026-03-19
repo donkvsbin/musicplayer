@@ -34,6 +34,7 @@ export class AudioSvc {
   private playQueue: TrackInfo[] = [];
   private currentIndex: number = -1;
   private playMode: PlayMode = PlayMode.ORDER;
+  private currentPlaylistName: string = ''; // 当前播放列表名称
   // 进度更新定时器
   private progressTimer: number = -1;
   private isInitialized: boolean = false;
@@ -400,13 +401,21 @@ export class AudioSvc {
    * @param tracks 歌曲列表
    * @param startIndex 开始播放的索引
    */
-  setPlayQueue(tracks: TrackInfo[], startIndex: number = 0): void {
+  setPlayQueue(tracks: TrackInfo[], startIndex: number = 0, playlistName: string = ''): void {
     this.playQueue = [...tracks];
+    this.currentPlaylistName = playlistName;
 
     if (startIndex >= 0 && startIndex < tracks.length) {
       this.currentIndex = startIndex;
       this.loadTrack(tracks[startIndex]);
     }
+  }
+
+  /**
+   * 获取当前播放列表名称
+   */
+  getCurrentPlaylistName(): string {
+    return this.currentPlaylistName;
   }
 
   /**

@@ -30,7 +30,7 @@ export struct TrackItem {
   }
   
   /**
-   * 加载元数据（封面和时长）
+   * 加载（封面和时长）
    */
   private async loadMetadata() {
     if (!this.track.filePath) {

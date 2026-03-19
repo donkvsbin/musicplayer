@@ -163,7 +163,7 @@ struct Index {
       
       // 加载数据
       await this.loadData();
-      
+      await this.restorePlaybackState(context);
       // 标记初始化完成
       this.isInitialized = true;
     } catch (err) {
@@ -442,7 +442,7 @@ struct Index {
 
   private playTrack(track: TrackInfo) {
     // 设置播放队列并播放
-    this.audioSvc.setPlayQueue(this.recentTracks);
+    this.audioSvc.setPlayQueue(this.recentTracks, 0, '最近播放');
     this.audioSvc.loadTrack(track);
   }
 

@@ -8,7 +8,7 @@ import { image } from '@kit.ImageKit';
 import { AudioSvc } from '../services/AudioSvc';
 import { Database } from '../services/Database';
 import { TrackInfo } from '../models/TrackInfo';
-import { ProgressBar } from '../views/ProgressBar';
+
 import { PlayMode, PlayerState, DEFAULT_PLAYLIST_FAVORITE } from '../constants/AppConstants';
 import { TimeUtil } from '../utils/TimeUtil';
 import { CoverExtractor } from '../utils/CoverExtractor';
@@ -25,6 +25,9 @@ struct Player {
   @State private rotationAngle: number = 0;
   @State private lyrics: string = '暂无歌词';
   @State private coverPixelMap: image.PixelMap | null = null;
+  @State private showPlaylist: boolean = false;
+  @State private playlist: TrackInfo[] = [];
+  @State private playlistName: string = '';
 
   private audioSvc: AudioSvc = AudioSvc.getInstance();
   private database: Database = Database.getInstance();
@@ -67,10 +70,11 @@ struct Player {
     this.playMode = this.audioSvc.getPlayMode();
     this.currentTime = this.audioSvc.getCurrentPosition();
     this.duration = this.audioSvc.getDuration();
-    
+    this.playlistName = this.audioSvc.getCurrentPlaylistName();
+
     // 检查是否已收藏
     this.checkFavorite();
-    
+
     // 提取封面
     this.loadCover();
   }
@@ -213,231 +217,339 @@ struct Player {
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   }
 
+  private openPlaylist() {
+    this.playlist = this.audioSvc.getPlayQueue();
+    animateTo({ duration: 250 }, () => {
+      this.showPlaylist = true;
+    });
+  }
+
+  private async playTrackFromPlaylist(track: TrackInfo) {
+    try {
+      await this.audioSvc.loadTrack(track);
+      this.audioSvc.play();
+      animateTo({ duration: 250 }, () => {
+        this.showPlaylist = false;
+      });
+    } catch (err) {
+      console.error('播放歌曲失败:', err);
+    }
+  }
+
   build() {
-    Column() {
-      // 顶部导航栏
-      Row() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column() {
+        // 顶部导航栏
+        Row() {
+          Button() {
+            Image($r('app.media.icon_back'))
+              .width(24)
+              .height(24)
+              .fillColor('#333333')
+          }
+          .type(ButtonType.Circle)
+          .backgroundColor('transparent')
+          .width(44)
+          .height(44)
+          .onClick(async () => {
+            try {
+              await router.back();
+            } catch (err) {
+              console.error('返回失败:', err);
+            }
+          })
+
+          Text('正在播放')
+            .fontSize(18)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#333333')
+            .layoutWeight(1)
+            .textAlign(TextAlign.Center)
+
+          Row().width(44).height(44)
+        }
+        .width('100%')
+        .height(70)
+        .padding({ left: 8, right: 8, top: 40 })
+
+        // 歌单名称
+        if (this.playlistName) {
+          Text(this.playlistName)
+            .fontSize(12)
+            .fontColor('#999999')
+            .width('100%')
+            .textAlign(TextAlign.Center)
+            .margin({ top: 8 })
+        }
+
+        // 专辑封面区域
+        Column() {
+          if (this.coverPixelMap) {
+            Image(this.coverPixelMap)
+              .width(300)
+              .height(300)
+              .objectFit(ImageFit.Cover)
+              .borderRadius(12)
+              .shadow({ radius: 20, color: 'rgba(0,0,0,0.15)', offsetX: 0, offsetY: 10 })
+          } else {
+            Column() {
+              Image($r('app.media.icon_music_note'))
+                .width(100)
+                .height(100)
+                .fillColor('#CCCCCC')
+            }
+            .width(300)
+            .height(300)
+            .justifyContent(FlexAlign.Center)
+            .backgroundColor('#F5F5F5')
+            .borderRadius(12)
+            .shadow({ radius: 20, color: 'rgba(0,0,0,0.1)', offsetX: 0, offsetY: 10 })
+          }
+        }
+        .margin({ top: 40 })
+
+        Blank()
+
+        // 歌曲信息
+        Column() {
+          Text(this.currentTrack?.title || '未知歌曲')
+            .fontSize(22)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#333333')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+            .textAlign(TextAlign.Center)
+
+          Text(this.currentTrack?.artist || '未知歌手')
+            .fontSize(14)
+            .fontColor('#999999')
+            .margin({ top: 8 })
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+            .textAlign(TextAlign.Center)
+        }
+        .padding({ left: 32, right: 32 })
+        .margin({ bottom: 24 })
+
+        // 收藏按钮
         Button() {
-          Image($r('app.media.icon_back'))
-            .width(24)
-            .height(24)
-            .fillColor('#333333')
+          Image(this.isFavorite ? $r('app.media.icon_favorited') : $r('app.media.icon_favorite'))
+            .width(28)
+            .height(28)
+            .fillColor(this.isFavorite ? '#FF4081' : '#999999')
         }
         .type(ButtonType.Circle)
         .backgroundColor('transparent')
-        .width(44)
-        .height(44)
-        .onClick(async () => {
-          try {
-            await router.back();
-          } catch (err) {
-            console.error('返回失败:', err);
-          }
-        })
+        .width(48)
+        .height(48)
+        .onClick(() => this.toggleFavorite())
+        .margin({ bottom: 24 })
 
-        Text('正在播放  ')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#333333')
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-
-        Row().width(44).height(44)
-      }
-      .width('100%')
-      .height(70)
-      .padding({ left: 8, right: 8, top: 40 })
-
-      // 专辑封面区域
-      Column() {
-        if (this.coverPixelMap) {
-          // 显示专辑封面（正方形）
-          Image(this.coverPixelMap)
-            .width(300)
-            .height(300)
-            .objectFit(ImageFit.Cover)
-            .borderRadius(12)
-            .shadow({ radius: 20, color: 'rgba(0,0,0,0.15)', offsetX: 0, offsetY: 10 })
-        } else {
-          // 显示默认封面（正方形）
-          Column() {
-            Image($r('app.media.icon_music_note'))
-              .width(100)
-              .height(100)
-              .fillColor('#CCCCCC')
-          }
-          .width(300)
-          .height(300)
-          .justifyContent(FlexAlign.Center)
-          .backgroundColor('#F5F5F5')
-          .borderRadius(12)
-          .shadow({ radius: 20, color: 'rgba(0,0,0,0.1)', offsetX: 0, offsetY: 10 })
-        }
-      }
-      .margin({ top: 40 })
-
-      // 歌词预览
-      Text('暂无歌词')
-        .fontSize(14)
-        .fontColor('#999999')
-        .margin({ top: 32 })
-
-      Blank()
-
-      // 歌曲信息
-      Column() {
-        Text(this.currentTrack?.title || '未知歌曲')
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#333333')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-          .textAlign(TextAlign.Center)
-
-        Text(this.currentTrack?.artist || '未知歌手')
-          .fontSize(14)
-          .fontColor('#999999')
-          .margin({ top: 8 })
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-          .textAlign(TextAlign.Center)
-      }
-      .padding({ left: 32, right: 32 })
-      .margin({ bottom: 24 })
-
-      // 收藏按钮
-      Button() {
-        Image(this.isFavorite ? $r('app.media.icon_favorited') : $r('app.media.icon_favorite'))
-          .width(28)
-          .height(28)
-          .fillColor(this.isFavorite ? '#FF4081' : '#999999')
-      }
-      .type(ButtonType.Circle)
-      .backgroundColor('transparent')
-      .width(48)
-      .height(48)
-      .onClick(() => this.toggleFavorite())
-      .margin({ bottom: 24 })
-
-      // 进度条
-      Column() {
-        Slider({
-          value: this.duration > 0 ? this.currentTime / this.duration * 100 : 0,
-          min: 0,
-          max: 100,
-          step: 0.1,
-          style: SliderStyle.OutSet
-        })
-          .blockColor('#FF4081')
-          .trackColor('#E0E0E0')
-          .selectedColor('#FF4081')
-          .showSteps(false)
-          .showTips(false)
-          .trackThickness(4)
-          .blockSize({ width: 16, height: 16 })
-          .onChange((value: number) => {
-            const position = Math.floor(value / 100 * this.duration);
-            this.seekToPosition(position);
+        // 进度条
+        Column() {
+          Slider({
+            value: this.duration > 0 ? this.currentTime / this.duration * 100 : 0,
+            min: 0,
+            max: 100,
+            step: 0.1,
+            style: SliderStyle.OutSet
           })
+            .blockColor('#FF4081')
+            .trackColor('#E0E0E0')
+            .selectedColor('#FF4081')
+            .showSteps(false)
+            .showTips(false)
+            .trackThickness(4)
+            .blockSize({ width: 16, height: 16 })
+            .onChange((value: number) => {
+              const position = Math.floor(value / 100 * this.duration);
+              this.seekToPosition(position);
+            })
 
+          Row() {
+            Text(this.formatTime(this.currentTime))
+              .fontSize(12)
+              .fontColor('#999999')
+
+            Blank()
+
+            Text(this.formatTime(this.duration))
+              .fontSize(12)
+              .fontColor('#999999')
+          }
+          .width('100%')
+          .padding({ left: 4, right: 4 })
+        }
+        .width('100%')
+        .padding({ left: 32, right: 32 })
+        .margin({ bottom: 24 })
+
+        // 播放控制区
         Row() {
-          Text(this.formatTime(this.currentTime))
-            .fontSize(12)
-            .fontColor('#999999')
+          Button() {
+            Image(this.getPlayModeIcon())
+              .width(24)
+              .height(24)
+              .fillColor('#999999')
+          }
+          .type(ButtonType.Circle)
+          .backgroundColor('transparent')
+          .width(48)
+          .height(48)
+          .onClick(() => this.togglePlayMode())
 
           Blank()
 
-          Text(this.formatTime(this.duration))
-            .fontSize(12)
-            .fontColor('#999999')
+          Button() {
+            Image($r('app.media.icon_previous'))
+              .width(28)
+              .height(28)
+              .fillColor('#333333')
+          }
+          .type(ButtonType.Circle)
+          .backgroundColor('transparent')
+          .width(56)
+          .height(56)
+          .onClick(() => this.previousTrack())
+
+          Button() {
+            Image(this.isPlaying ? $r('app.media.icon_pause') : $r('app.media.icon_play'))
+              .width(36)
+              .height(36)
+              .fillColor('#FFFFFF')
+          }
+          .type(ButtonType.Circle)
+          .backgroundColor('#FF4081')
+          .width(72)
+          .height(72)
+          .shadow({ radius: 10, color: 'rgba(255,64,129,0.3)' })
+          .onClick(() => this.togglePlay())
+
+          Button() {
+            Image($r('app.media.icon_next'))
+              .width(28)
+              .height(28)
+              .fillColor('#333333')
+          }
+          .type(ButtonType.Circle)
+          .backgroundColor('transparent')
+          .width(56)
+          .height(56)
+          .onClick(() => this.nextTrack())
+
+          Blank()
+
+          Button() {
+            Image($r('app.media.icon_playlist'))
+              .width(24)
+              .height(24)
+              .fillColor('#999999')
+          }
+          .type(ButtonType.Circle)
+          .backgroundColor('transparent')
+          .width(48)
+          .height(48)
+          .onClick(() => this.openPlaylist())
         }
         .width('100%')
-        .padding({ left: 4, right: 4 })
+        .height(80)
+        .padding({ left: 24, right: 24 })
+        .margin({ bottom: 32 })
       }
       .width('100%')
-      .padding({ left: 32, right: 32 })
-      .margin({ bottom: 24 })
+      .height('100%')
+      .backgroundColor('#FAFAFA')
 
-      // 播放控制区
-      Row() {
-        // 播放模式
-        Button() {
-          Image(this.getPlayModeIcon())
-            .width(24)
-            .height(24)
-            .fillColor('#999999')
+      // 底部播放列表
+      if (this.showPlaylist) {
+        // 半透明遮罩
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor('rgba(0,0,0,0.5)')
+          .onClick(() => {
+            animateTo({ duration: 250 }, () => {
+              this.showPlaylist = false;
+            });
+          })
+          .transition(TransitionEffect.OPACITY)
+
+        // 播放列表面板
+        Column() {
+          Row() {
+            Text('播放列表')
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#333333')
+            Blank()
+            Text(`${this.playlist.length} 首`)
+              .fontSize(14)
+              .fontColor('#999999')
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 16, bottom: 12 })
+
+          if (this.playlist.length === 0) {
+            Column() {
+              Text('播放列表为空')
+                .fontSize(14)
+                .fontColor('#999999')
+            }
+            .width('100%')
+            .height(150)
+            .justifyContent(FlexAlign.Center)
+          } else {
+            List({ space: 0 }) {
+              ForEach(this.playlist, (track: TrackInfo) => {
+                ListItem() {
+                  Row() {
+                    Column() {
+                      Text(track.title || '未知歌曲')
+                        .fontSize(15)
+                        .fontColor(this.currentTrack?.id === track.id ? '#FF4081' : '#333333')
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      Text(track.artist || '未知歌手')
+                        .fontSize(12)
+                        .fontColor('#999999')
+                        .margin({ top: 4 })
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }
+                    .layoutWeight(1)
+                    .alignItems(HorizontalAlign.Start)
+
+                    if (this.currentTrack?.id === track.id) {
+                      Image($r('app.media.icon_playing'))
+                        .width(20)
+                        .height(20)
+                        .fillColor('#FF4081')
+                    }
+                  }
+                  .width('100%')
+                  .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+                  .onClick(() => { this.playTrackFromPlaylist(track); })
+                }
+              })
+            }
+            .width('100%')
+            .height(250)
+            .divider({ strokeWidth: 0.5, color: '#EEEEEE' })
+          }
         }
-        .type(ButtonType.Circle)
-        .backgroundColor('transparent')
-        .width(48)
-        .height(48)
-        .onClick(() => this.togglePlayMode())
-
-        Blank()
-
-        // 上一首
-        Button() {
-          Image($r('app.media.icon_previous'))
-            .width(28)
-            .height(28)
-            .fillColor('#333333')
-        }
-        .type(ButtonType.Circle)
-        .backgroundColor('transparent')
-        .width(56)
-        .height(56)
-        .onClick(() => this.previousTrack())
-
-        // 播放/暂停
-        Button() {
-          Image(this.isPlaying ? $r('app.media.icon_pause') : $r('app.media.icon_play'))
-            .width(36)
-            .height(36)
-            .fillColor('#FFFFFF')
-        }
-        .type(ButtonType.Circle)
-        .backgroundColor('#FF4081')
-        .width(72)
-        .height(72)
-        .shadow({ radius: 10, color: 'rgba(255,64,129,0.3)' })
-        .onClick(() => this.togglePlay())
-
-        // 下一首
-        Button() {
-          Image($r('app.media.icon_next'))
-            .width(28)
-            .height(28)
-            .fillColor('#333333')
-        }
-        .type(ButtonType.Circle)
-        .backgroundColor('transparent')
-        .width(56)
-        .height(56)
-        .onClick(() => this.nextTrack())
-
-        Blank()
-
-        // 播放列表
-        Button() {
-          Image($r('app.media.icon_playlist'))
-            .width(24)
-            .height(24)
-            .fillColor('#999999')
-        }
-        .type(ButtonType.Circle)
-        .backgroundColor('transparent')
-        .width(48)
-        .height(48)
+        .width('100%')
+        .backgroundColor('#FFFFFF')
+        .borderRadius({ topLeft: 16, topRight: 16 })
+        .shadow({ radius: 20, color: 'rgba(0,0,0,0.1)' })
+        .transition(TransitionEffect.asymmetric(
+          TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 300 })),
+          TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 300 }))
+        ))
       }
-      .width('100%')
-      .height(80)
-      .padding({ left: 24, right: 24 })
-      .margin({ bottom: 32 })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FAFAFA')
   }
 }

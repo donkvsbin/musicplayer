@@ -56,13 +56,13 @@ struct LocalMusicPage {
 
   private playTrack(track: TrackInfo) {
     console.info(`准备播放: ${track.title}, 文件路径: ${track.filePath}`);
-    
+
     // 找到点击歌曲在列表中的索引
     const trackIndex = this.tracks.findIndex(t => t.id === track.id);
-    
+
     // 设置播放队列为所有歌曲，并从点击的歌曲开始播放
-    this.audioSvc.setPlayQueue(this.tracks, trackIndex >= 0 ? trackIndex : 0);
-    
+    this.audioSvc.setPlayQueue(this.tracks, trackIndex >= 0 ? trackIndex : 0, '本地音乐');
+
     this.currentTrackId = track.id;
   }
 

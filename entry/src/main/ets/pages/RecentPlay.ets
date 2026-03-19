@@ -43,7 +43,7 @@ struct RecentPlayPage {
 
   private playTrack(track: TrackInfo) {
     const trackIndex = this.tracks.findIndex(t => t.id === track.id);
-    this.audioSvc.setPlayQueue(this.tracks, trackIndex >= 0 ? trackIndex : 0);
+    this.audioSvc.setPlayQueue(this.tracks, trackIndex >= 0 ? trackIndex : 0, '最近播放');
     this.currentTrackId = track.id;
   }
 

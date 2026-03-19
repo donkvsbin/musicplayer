@@ -49,7 +49,7 @@ async function scanDirectory(
   audioFiles: string[]
 ): Promise<void> {
   try {
-    // 使用 listFile 获取目录内容（不带 options 参数）
+    // 使用 listFile 获取目录内容   
     const files: string[] = await fileIo.listFile(dirPath);
     
     for (const file of files) {
@@ -191,12 +191,11 @@ workerPort.onmessage = (e: MessageEvents): void => {
   const message: ScanMessage = e.data as ScanMessage;
   
   if (message.type === 'start') {
-    const options: ScanOptions = message.options || {
-      directories: ['/storage/media/local/files'],
-      recursive: true
-    };
-    
-    performScan(options);
+    if (!message.options) {
+      console.error('扫描任务缺少 options 参数');
+      return;
+    }
+    performScan(message.options);
   } else if (message.type === 'stop') {
     // 停止扫描（当前实现会完成当前批次后停止）
     console.info('收到停止扫描请求');

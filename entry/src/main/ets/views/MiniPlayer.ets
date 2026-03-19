@@ -170,19 +170,19 @@ export struct MiniPlayer {
         })
 
         // 播放列表按钮
-        Button() {
-          Image($r('app.media.icon_playlist'))
-            .width(24)
-            .height(24)
-            .fillColor('#666666')
-        }
-        .type(ButtonType.Circle)
-        .backgroundColor('transparent')
-        .width(44)
-        .height(44)
-        .onClick(() => {
-          // 显示播放列表（可以通过事件通知父组件）
-        })
+        // Button() {
+        //   Image($r('app.media.icon_playlist'))
+        //     .width(24)
+        //     .height(24)
+        //     .fillColor('#666666')
+        // }
+        // .type(ButtonType.Circle)
+        // .backgroundColor('transparent')
+        // .width(44)
+        // .height(44)
+        // .onClick(() => {
+        //   // 显示播放列表（可以通过事件通知父组件）
+        // })
       }
     }
     .width('100%')

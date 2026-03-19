@@ -138,7 +138,8 @@ struct SearchPage {
   }
 
   private playTrack(track: TrackInfo) {
-    this.audioSvc.setPlayQueue(this.searchResults.length > 0 ? this.searchResults : [track]);
+    const playlistName = this.searchKeyword ? `搜索: ${this.searchKeyword}` : '搜索结果';
+    this.audioSvc.setPlayQueue(this.searchResults.length > 0 ? this.searchResults : [track], 0, playlistName);
     this.audioSvc.loadTrack(track);
   }
 
